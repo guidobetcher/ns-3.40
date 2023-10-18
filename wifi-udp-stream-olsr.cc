@@ -103,9 +103,21 @@ main(int argc, char* argv[])
     cmd.AddValue("pcap", "Enable/disable PCAP Tracing", pcapTracing);
     cmd.AddValue("numNodes", "number of nodes", numNodes);
     cmd.AddValue("distance", "distance (m)", distance);
-    cmd.Parse(argc, argv););
+    cmd.Parse(argc, argv);
+
+    // tcpVariant = std::string("ns3::") + tcpVariant;
+    // Select TCP variant
+    // TypeId tcpTid;
+    // NS_ABORT_MSG_UNLESS(TypeId::LookupByNameFailSafe(tcpVariant, &tcpTid),
+    //                     "TypeId " << tcpVariant << " not found");
+    // Config::SetDefault("ns3::TcpL4Protocol::SocketType",
+    //                    TypeIdValue(TypeId::LookupByName(tcpVariant)));
+
+     // Fix non-unicast data rate to be the same as that of unicast
+    // Config::SetDefault("ns3::WifiRemoteStationManager::NonUnicastMode", StringValue(phyMode));
 
     // /* Configure TCP Options */
+    // Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(payloadSize));
     WifiMacHelper wifiMac;
     WifiHelper wifiHelper;
     // wifiHelper.SetStandard(WIFI_STANDARD_80211n);
@@ -121,20 +133,41 @@ main(int argc, char* argv[])
     wifiPhy.Set("RxGain", DoubleValue(-10));
     wifiPhy.SetChannel(wifiChannel.Create());
     wifiPhy.SetErrorRateModel("ns3::YansErrorRateModel");
+    // wifiHelper.SetRemoteStationManager("ns3::ConstantRateWifiManager",
+    //                                    "DataMode",
+    //                                    StringValue(phyMode),
+    //                                    "ControlMode",
+    //                                    StringValue(phyMode));
+
     
     wifiHelper.SetRemoteStationManager("ns3::MinstrelWifiManager");
+    
+    // wifiHelper.SetRemoteStationManager("ns3::ConstantRateWifiManager",
+    //                                    "DataMode",
+    //                                    StringValue(phyRate),
+    //                                    "ControlMode",
+    //                                    StringValue("HtMcs0"));
 
     NodeContainer networkNodes;
     networkNodes.Create(numNodes);
-    
+    // Ptr<Node> apWifiNode = networkNodes.Get(0);
+    // Ptr<Node> staWifiNode = networkNodes.Get(numNodes - 1);
     Ptr<Node> sinkNode = networkNodes.Get(0);
     Ptr<Node> sourceNode = networkNodes.Get(numNodes - 1);
 
     // /* Configure AP */
     Ssid ssid = Ssid("network");
+    // wifiMac.SetType("ns3::ApzWifiMac", "Ssid", SsidValue(ssid));
+
+    // NetDeviceContainer apDevice;
+    // apDevice = wifiHelper.Install(wifiPhy, wifiMac, apWifiNode);
 
     /* Configure STA */
+    // wifiMac.SetType("ns3::AdhocWifiMac");
     wifiMac.SetType("ns3::AdhocWifiMac", "Ssid", SsidValue(ssid));
+
+    // NetDeviceContainer staDevices;
+    // staDevices = wifiHelper.Install(wifiPhy, wifiMac, staWifiNode);
     NetDeviceContainer devices;
     devices = wifiHelper.Install(wifiPhy, wifiMac, networkNodes);
 
@@ -149,34 +182,53 @@ main(int argc, char* argv[])
     }
     mobility.SetPositionAllocator(positionAlloc);
     mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+    // mobility.Install(apWifiNode);
+    // mobility.Install(staWifiNode);
     mobility.Install(networkNodes);
 
+    // MobilityHelper mobility;
+    // mobility.SetPositionAllocator("ns3::GridPositionAllocator",
+    //                               "MinX",
+    //                               DoubleValue(0.0),
+    //                               "MinY",
+    //                               DoubleValue(0.0),
+    //                               "DeltaX",
+    //                               DoubleValue(distance),
+    //                               "DeltaY",
+    //                               DoubleValue(0),
+    //                               "GridWidth",
+    //                               UintegerValue(numNodes),
+    //                               "LayoutType",
+    //                               StringValue("RowFirst"));
+    // mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+    // mobility.Install(networkNodes);
+
     // Enable OLSR
-    // OlsrHelper olsr;
-    // Ipv4StaticRoutingHelper staticRouting;
+    OlsrHelper olsr;
+    Ipv4StaticRoutingHelper staticRouting;
  
-    // Ipv4ListRoutingHelper list;
-    // list.Add(staticRouting, 0);
+    Ipv4ListRoutingHelper list;
+    list.Add(staticRouting, 0);
     // list.Add(olsr, 10);
 
     /* Internet stack */
-    // InternetStackHelper stack;
-    // stack.SetRoutingHelper(list); // has effect on the next Install ()
-    // stack.Install(networkNodes);
+    InternetStackHelper stack;
+    stack.SetRoutingHelper(list); // has effect on the next Install ()
+    stack.Install(networkNodes);
 
     Ipv4AddressHelper address;
     NS_LOG_INFO("Assign IP Addresses.");
     address.SetBase("10.0.0.0", "255.255.255.0");
+    // Ipv4InterfaceContainer apInterface;
+    // apInterface = address.Assign(apDevice);
+    // Ipv4InterfaceContainer staInterface;
+    // staInterface = address.Assign(staDevices);
     Ipv4InterfaceContainer interfaces;
     interfaces = address.Assign(devices);
-    
-    for (int i = 1; i < numNodes; i++) {
-        Ipv4StaticRoutingHelper ipv4RoutingHelper;
-        // Create static routes from A to C
-        Ptr<Ipv4StaticRouting> staticRouting = ipv4RoutingHelper.GetStaticRouting(interfaces.GetAddress(i));
-        staticRouting->AddHostRouteTo(Ipv4Address("10.0.0.1"), Ipv4Address("10.0.0." + i), i);
-    }
-    
+
+    /* Populate routing table */
+    // Ipv4GlobalRoutingHelper::PopulateRoutingTables();
+
     /* Install UDP Receiver on the access point */
     PacketSinkHelper sinkHelper("ns3::UdpSocketFactory",
                                 InetSocketAddress(Ipv4Address::GetAny(), 9));
@@ -191,6 +243,16 @@ main(int argc, char* argv[])
     server.SetAttribute("OffTime", StringValue("ns3::ConstantRandomVariable[Constant=0]"));
     server.SetAttribute("DataRate", DataRateValue(DataRate(dataRate)));
     ApplicationContainer serverApp = server.Install(sourceNode);
+
+    // TypeId tid = TypeId::LookupByName("ns3::UdpSocketFactory");
+    // Ptr<Socket> recvSink = Socket::CreateSocket(c.Get(sinkNode), tid);
+    // InetSocketAddress local = InetSocketAddress(Ipv4Address::GetAny(), 80);
+    // recvSink->Bind(local);
+    // recvSink->SetRecvCallback(MakeCallback(&ReceivePacket));
+
+    // Ptr<Socket> source = Socket::CreateSocket(c.Get(sourceNode), tid);
+    // InetSocketAddress remote = InetSocketAddress(interfaces.GetAddress(sinkNode, 0), 80);
+    // source->Connect(remote);
     
     /* Start Applications */
     sinkApp.Start(Seconds(0.0));
@@ -212,6 +274,11 @@ main(int argc, char* argv[])
 
     Simulator::Destroy();
 
+    // if (averageThroughput < 50)
+    // {
+    //     NS_LOG_ERROR("Obtained throughput is not in the expected boundaries!");
+    //     exit(1);
+    // }
     std::cout << "\nAverage throughput: " << averageThroughput << " Mbit/s" << std::endl;
     return 0;
 }
